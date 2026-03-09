@@ -15,6 +15,7 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from dataset import Dataset, BlockRestore
 from utils import seed_dic, hyper_norm
 from net import Net
+dtype = torch.cuda.FloatTensor
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = torch.device("cuda:0")
 
@@ -86,7 +87,6 @@ def wavelet_denoise_2d_band_level(band_img: np.ndarray, wavelet: str = 'db1', le
 
     # Reconstruction
     band_denoised = pywt.waverec2(new_coeffs, wavelet=wavelet, mode='symmetric')
-    # print(band_denoised.shape, band_img.shape)
     # The function waverec2 may return an array that is slightly larger than the original image (due to border padding, etc.), so crop it to the original size.
     H, W = band_img.shape
     if band_denoised.shape[0] != H or band_denoised.shape[1] != W:
@@ -110,7 +110,6 @@ def wavelet_denoise_2d_band_total(band_img: np.ndarray, wavelet: str = 'db1', le
     thresh: Custom threshold. If None, a threshold based on noise estimation will be used.
     """
     coeffs = pywt.wavedec2(band_img, wavelet=wavelet, mode='symmetric', level=level)
-    # print(coeffs[0].shape)
     # coeffs[0] represents the approximate coefficient, followed by the three detailed coefficients (cH, cV, cD) for each scale.
     approx = coeffs[0]
 
@@ -121,7 +120,6 @@ def wavelet_denoise_2d_band_total(band_img: np.ndarray, wavelet: str = 'db1', le
             details = coeffs[i]  
             # Flatten and concatenate the three sub-bands and then take the overall statistical quantity.
             detail_vals = np.concatenate([d.ravel() for d in details])
-            # print(detail_vals.shape)
             if detail_vals.size == 0:
                 t = 0.0
             else:
@@ -204,7 +202,7 @@ def run_single_file(args):
     # Normalization and wavelet decomposition
     img = hsi.transpose(2, 0, 1)  # (bands, height, width)
     img = hyper_norm(img)
-    img = torch.from_numpy(img).type(args.dtype).unsqueeze(0)
+    img = torch.from_numpy(img).type(dtype).unsqueeze(0)
     img = wavelet_denoise_3d_batch(img, device=device, level=1)
     bands, height, width = img.size()[1:]
 
@@ -233,7 +231,7 @@ def run_single_file(args):
     # print(f'Model FLOPs: {FLOPs / 1e9:.4f} GFLOPs')
     # print(f'Model Parameters: {Params / 1e6:.4f} M')
 
-    l1_loss = nn.L1Loss().type(args.dtype)
+    l1_loss = nn.L1Loss().type(dtype)
     optimizer = torch.optim.Adam(list(net.parameters()), lr=args.lr)
 
     # Train
@@ -300,22 +298,16 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--num_iterations', type=int, default=150, help='Training iterations')
     parser.add_argument('--num_heads', type=int, default=2, help='Number of heads in transformer')
-    parser.add_argument('--dtype', type=str, default='cuda.FloatTensor', help='Data type, cuda or cpu')
     parser.add_argument('--files', type=str, default='abu-airport-4, abu-beach-3, abu-urban-2, abu-urban-3, abu-urban-4, hydice',
                         help='Comma-separated list of files to process')
 
     args = parser.parse_args()
 
-    # Set dtype
-    if args.dtype == 'cuda':
-        args.dtype = torch.cuda.FloatTensor
-    else:
-        args.dtype = torch.FloatTensor
-
     file_list = [f.strip() for f in args.files.split(',')]
     for filename in file_list:
         args.file = filename
         run_single_file(args)
+
 
 
 
