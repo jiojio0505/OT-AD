@@ -15,6 +15,169 @@ from utils import seed_dic, hyper_norm
 from net import Net
 
 
+def wavelet_denoise_2d_band_level(band_img: np.ndarray, wavelet: str = 'db1', level: int = 2,
+                            thresh_type: str = 'soft', thresh: Optional[float] = None) -> np.ndarray:
+    """
+    band_img: 2D numpy array (H, W) - Single band image
+    Return the denoised image of the same size.
+    thresh_type: 'soft' or 'hard'
+    thresh: Custom threshold. If None, a threshold based on noise estimation will be used.
+    """
+    coeffs = pywt.wavedec2(band_img, wavelet=wavelet, mode='symmetric', level=level)
+    # coeffs[0] represents the approximate coefficient, followed by the three detailed coefficients (cH, cV, cD) for each scale.
+    approx = coeffs[0]
+
+    # Calculate the threshold for each layer (if adaptive is required).
+    if thresh is None:
+        thresh_layers = []
+        for i in range(1, len(coeffs)):
+            details = coeffs[i]  
+            t_h = t_v = t_d = 0.0
+            # Calculate the MAD-based threshold for each subband.
+            dH = details[0]
+            if dH.size != 0:
+                flatH = dH.ravel()
+                madH = np.median(np.abs(flatH - np.median(flatH)))
+                t_h = madH / 0.6745
+
+            dV = details[1]
+            if dV.size != 0:
+                flatV = dV.ravel()
+                madV = np.median(np.abs(flatV - np.median(flatV)))
+                t_v = madV / 0.6745
+
+            dD = details[2]
+            if dD.size != 0:
+                flatD = dD.ravel()
+                madD = np.median(np.abs(flatD - np.median(flatD)))
+                t_d = madD / 0.6745
+
+            thresh_layers.append((t_h, t_v, t_d))
+
+    else:
+        thresh_layers = [(thresh, thresh, thresh) for _ in range(len(coeffs)-1)]
+
+    # Thresholding detail coefficients.
+    new_coeffs = [approx]
+    for i in range(1, len(coeffs)):
+        detail = coeffs[i]  # (cH, cV, cD)
+        t_h, t_v, t_d = thresh_layers[i - 1]
+        if thresh_type == 'soft':
+            detail_thresh = (
+                pywt.threshold(detail[0], t_h, mode='soft'),
+                pywt.threshold(detail[1], t_v, mode='soft'),
+                pywt.threshold(detail[2], t_d, mode='soft')
+            )
+
+        elif thresh_type == 'hard':
+            detail_thresh = (
+                pywt.threshold(detail[0], t_h, mode='hard'),
+                pywt.threshold(detail[1], t_v, mode='hard'),
+                pywt.threshold(detail[2], t_d, mode='hard')
+            )
+        else:
+            raise ValueError("thresh_type must be 'soft' or 'hard'")
+            
+        new_coeffs.append(detail_thresh)
+
+    # Reconstruction
+    band_denoised = pywt.waverec2(new_coeffs, wavelet=wavelet, mode='symmetric')
+    # print(band_denoised.shape, band_img.shape)
+    # The function waverec2 may return an array that is slightly larger than the original image (due to border padding, etc.), so crop it to the original size.
+    H, W = band_img.shape
+    if band_denoised.shape[0] != H or band_denoised.shape[1] != W:
+        band_denoised = band_denoised[:H, :W]
+
+    try:
+        if np.issubdtype(band_img.dtype, np.integer):
+            return band_denoised.astype(np.float32)
+        else:
+            return band_denoised.astype(band_img.dtype)
+    except Exception:
+        return band_denoised
+
+
+def wavelet_denoise_2d_band_total(band_img: np.ndarray, wavelet: str = 'db1', level: int = 2,
+                            thresh_type: str = 'soft', thresh: Optional[float] = None) -> np.ndarray:
+    """
+    band_img: 2D numpy array (H, W) - Single band image
+    Return the denoised image of the same size.
+    thresh_type: 'soft' or 'hard'
+    thresh: Custom threshold. If None, a threshold based on noise estimation will be used.
+    """
+    coeffs = pywt.wavedec2(band_img, wavelet=wavelet, mode='symmetric', level=level)
+    # print(coeffs[0].shape)
+    # coeffs[0] represents the approximate coefficient, followed by the three detailed coefficients (cH, cV, cD) for each scale.
+    approx = coeffs[0]
+
+    # Calculate the threshold for each layer (if adaptive is required).
+    if thresh is None:
+        thresh_layers = []
+        for i in range(1, len(coeffs)):
+            details = coeffs[i]  
+            # Flatten and concatenate the three sub-bands and then take the overall statistical quantity.
+            detail_vals = np.concatenate([d.ravel() for d in details])
+            # print(detail_vals.shape)
+            if detail_vals.size == 0:
+                t = 0.0
+            else:
+                # Roughly robust estimation of threshold.
+                t = np.median(np.abs(detail_vals)) / 0.6745
+            thresh_layers.append(t)
+    else:
+        thresh_layers = [thresh] * (len(coeffs) - 1)
+
+    # Thresholding detail coefficients.
+    new_coeffs = [approx]
+    for i in range(1, len(coeffs)):
+        detail = coeffs[i]  # (cH, cV, cD)
+        t = thresh_layers[i - 1]
+        if thresh_type == 'soft':
+            detail_thresh = tuple(pywt.threshold(d, t, mode='soft') for d in detail)
+        elif thresh_type == 'hard':
+            detail_thresh = tuple(pywt.threshold(d, t, mode='hard') for d in detail)
+        else:
+            raise ValueError("thresh_type must be 'soft' or 'hard'")
+        new_coeffs.append(detail_thresh)
+
+    # Reconstruction
+    band_denoised = pywt.waverec2(new_coeffs, wavelet=wavelet, mode='symmetric')
+    # The function waverec2 may return an array that is slightly larger than the original image (due to border padding, etc.), so crop it to the original size.
+    if band_denoised.shape != band_img.shape:
+        band_denoised = band_denoised[:band_img.shape[0], :band_img.shape[1]]
+    return band_denoised
+
+
+def wavelet_denoise_3d_batch(X: torch.Tensor, device: torch.device,
+                             wavelet: str = 'db1', level: int = 2,
+                             thresh_type: str = 'soft', thresh: Optional[float] = None) -> torch.Tensor:
+    N, C, H, W = X.shape
+    X_cpu = X.detach().cpu().numpy()
+    denoised_cpu = np.empty((N, C, H, W), dtype=np.float32)
+
+    def _process_one(n: int, c: int):
+        band_img = X_cpu[n, c, :, :].astype(np.float32)
+        # Optional: wavelet_denoise_2d_band_level or wavelet_denoise_2d_band_total
+        band_denoised = wavelet_denoise_2d_band_level(
+            band_img,
+            wavelet=wavelet,
+            level=level,
+            thresh_type=thresh_type,
+            thresh=thresh
+        )
+        if band_denoised.shape != (H, W):
+            band_denoised = band_denoised[:H, :W]
+        return n, c, band_denoised.astype(np.float32)
+
+    for n in range(N):
+        for c in range(C):
+            n_idx, c_idx, band_out = _process_one(n, c)
+            denoised_cpu[n_idx, c_idx, :, :] = band_out
+
+    denoised_tensor = torch.from_numpy(denoised_cpu).to(device)
+    return denoised_tensor
+
+
 def run_single_file(args):
     # Set random seeds
     seed = seed_dic[args.file]
@@ -38,6 +201,7 @@ def run_single_file(args):
     img = hsi.transpose(2, 0, 1)  # (bands, height, width)
     img = hyper_norm(img)
     img = torch.from_numpy(img).type(args.dtype).unsqueeze(0)
+    img = wavelet_denoise_3d_batch(img_var, device=device, level=1)
     bands, height, width = img.size()[1:]
 
     # DataLoader setup
@@ -148,3 +312,4 @@ if __name__ == "__main__":
     for filename in file_list:
         args.file = filename
         run_single_file(args)
+
