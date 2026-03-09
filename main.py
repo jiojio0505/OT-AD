@@ -199,11 +199,11 @@ def run_single_file(args):
     hsi = mat['data']
     gt = mat['map']
 
-    # Normalize
+    # Normalization and wavelet decomposition
     img = hsi.transpose(2, 0, 1)  # (bands, height, width)
     img = hyper_norm(img)
     img = torch.from_numpy(img).type(args.dtype).unsqueeze(0)
-    img = wavelet_denoise_3d_batch(img_var, device=device, level=1)
+    img = wavelet_denoise_3d_batch(img, device=device, level=1)
     bands, height, width = img.size()[1:]
 
     # DataLoader setup
@@ -314,5 +314,6 @@ if __name__ == "__main__":
     for filename in file_list:
         args.file = filename
         run_single_file(args)
+
 
 
