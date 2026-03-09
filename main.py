@@ -15,6 +15,8 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from dataset import Dataset, BlockRestore
 from utils import seed_dic, hyper_norm
 from net import Net
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+device = torch.device("cuda:0")
 
 
 def wavelet_denoise_2d_band_level(band_img: np.ndarray, wavelet: str = 'db1', level: int = 2,
@@ -298,7 +300,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--num_iterations', type=int, default=150, help='Training iterations')
     parser.add_argument('--num_heads', type=int, default=2, help='Number of heads in transformer')
-    parser.add_argument('--dtype', type=str, default='cuda', help='Data type, cuda or cpu')
+    parser.add_argument('--dtype', type=str, default='cuda.FloatTensor', help='Data type, cuda or cpu')
     parser.add_argument('--files', type=str, default='abu-airport-4, abu-beach-3, abu-urban-2, abu-urban-3, abu-urban-4, hydice',
                         help='Comma-separated list of files to process')
 
@@ -314,6 +316,7 @@ if __name__ == "__main__":
     for filename in file_list:
         args.file = filename
         run_single_file(args)
+
 
 
 
