@@ -11,6 +11,9 @@ You can use the following format for citation:
   author={Wang, Mengjiao and Li, Lingling and Jiao, Licheng and Liu, Xu and Liu, Fang and Chen, Puhua and Yang, Shuyuan},
   journal={IEEE Transactions on Geoscience and Remote Sensing},
   year={2026},
-  publisher={IEEE}
+  volume={64},
+  pages={1-18},
+  publisher={IEEE},
+  doi={10.1109/TGRS.2026.3655458}
 }
 ```
