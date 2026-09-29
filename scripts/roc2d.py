@@ -25,7 +25,7 @@ for file in file_list:
             continue
         mat = sio.loadmat(mat_name)
         tpr = mat['PD'] 
-        fpr = mat['PF']
+        fpr = mat['FAR']
         method_dict[method] = [tpr, fpr]
 
     # Draw roc fig
